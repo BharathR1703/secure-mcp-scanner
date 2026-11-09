@@ -1,0 +1,114 @@
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: sample_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d sample_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mysql:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: mysql
+      MYSQL_DATABASE: sample_db
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./init_mysql.sql:/docker-entrypoint-initdb.d/init_mysql.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-pmysql"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./init_mongo.js:/docker-entrypoint-initdb.d/init_mongo.js
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24-alpine
+    environment:
+      CLICKHOUSE_DB: sample_db
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - ./init_clickhouse.sql:/docker-entrypoint-initdb.d/init_clickhouse.sql
+    healthcheck:
+      # 127.0.0.1 rather than localhost: inside the container "localhost"
+      # resolves to ::1 first, and ClickHouse only listens on IPv4.
+      test: ["CMD", "wget", "--spider", "-q", "127.0.0.1:8123/ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/sample_db
+      - LOG_LEVEL=INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - BACKEND_URL=http://backend:8000
+    depends_on:
+      - backend
+
+  # The test suite. It runs against the live databases above, so it needs
+  # them to be up first:
+  #
+  #   docker compose --profile test run --rm tests
+  #
+  # The unit tests pass without any database; the integration tests skip
+  # themselves when an engine is unreachable.
+  tests:
+    build: ./backend
+    profiles: ["test"]
+    command: ["pytest", "-q", "tests"]
+    environment:
+      - TEST_DSN_POSTGRES=postgresql://postgres:postgres@postgres:5432/sample_db
+      - TEST_DSN_MYSQL=mysql://root:mysql@mysql:3306/sample_db
+      - TEST_DSN_MONGODB=mongodb://mongo:27017/sample_db
+      - TEST_DSN_CLICKHOUSE=clickhouse://default:@clickhouse:9000/sample_db
+      - TEST_DSN_SQLITE=sqlite:////app/data/sample.db
+      - LOG_LEVEL=WARNING
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy

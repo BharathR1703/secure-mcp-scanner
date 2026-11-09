@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+env/
+venv/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Local database files
+*.db
+*.sqlite
+*.sqlite3
+backend/data/
+
+# Node
+node_modules/
+dist/
+
+# Environment / secrets
+.env
+.env.*
+
+# Logs / OS / editors
+*.log
+.DS_Store
+.idea/
+.vscode/
+
+# Docker
+.docker/
